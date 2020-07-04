@@ -57,4 +57,4 @@ def test_elbo(image_shape):
         torch.tensor([[1.0, 1.0]])
     )
     output = criterion(y_pred, None)
-    assert torch.allclose(output, torch.tensor(-245.59708))
+    assert torch.allclose(output, torch.tensor(245.59708))
