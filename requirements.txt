@@ -1,0 +1,6 @@
+torch
+torchvision
+skorch
+ipdb
+pytest
+matplotlib
