@@ -4,6 +4,7 @@ import torchvision
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy
 
 from operator import mul
 from functools import reduce
@@ -136,7 +137,7 @@ def build_model():
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=ELBO,
-        max_epochs=5,
+        max_epochs=2,
         batch_size=64,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
@@ -156,7 +157,7 @@ def visualize(encode, dataset, class_labels):
     zs, ys = [], []
     for (x, labels) in dataset:
         ys.append(labels)
-        zs.append(encode(x)[0].detach().numpy())
+        zs.append(encode(x).detach().numpy())
 
     latents = np.concatenate(zs, axis=0)
     labels = np.concatenate(ys, axis=0)
@@ -169,6 +170,44 @@ def visualize(encode, dataset, class_labels):
     plt.legend()
     plt.scatter([0], [0], marker="x", s=150, color="black", linewidth=3)
     plt.axis('equal')
+
+
+def generate(decode, how='prior'):
+    # display a 2D manifold of the decoded images
+    n = 15  # figure with 15x15 decoded images
+    digit_size = 28
+    figure = np.zeros((digit_size * n, digit_size * n))
+
+    linspace = np.linspace(0.05, 0.95, n)
+    if how == 'prior':
+        grid_x = scipy.stats.norm.ppf(linspace)
+        grid_y = scipy.stats.norm.ppf(linspace)
+
+    elif how == 'uniform':
+        grid_x = 6 * linspace - 3
+        grid_y = 6 * linspace - 3
+    else:
+        assert 'Unrecognized `how` choice.'
+
+    for i, yi in enumerate(grid_x):
+        for j, xi in enumerate(grid_y):
+            z_sample = np.array([[xi, yi]])
+            # mean_image, sampled_image
+            _, mean_image, _ = decode(torch.tensor(z_sample).float())
+            xd_mean_image = mean_image.detach().numpy()
+
+            digit = xd_mean_image[0].reshape(digit_size, digit_size)
+            figure[i * digit_size: (i + 1) * digit_size,
+                   j * digit_size: (j + 1) * digit_size] = digit
+
+    plt.figure(figsize=(10, 10))
+    ax_min, ax_max = linspace[0], linspace[-1]
+    plt.imshow(figure, cmap='Greys_r', extent=[ax_min, ax_max, ax_min, ax_max])
+    grid_x_neat = ['{:0.2f}'.format(x) for x in grid_x]
+    plt.yticks(linspace[::2], grid_x_neat[::2])
+    plt.xticks(linspace[::2], grid_x_neat[::2])
+    plt.plot()
+    plt.show()
 
 
 def main():
@@ -191,9 +230,14 @@ def main():
     model = build_model().fit(train)
     encode = model.module_.encode
 
-    visualize(encode, DataIterator(train, batch_size=4), class_labels)
-    plt.plot()
-    plt.show()
+    visualize(
+        lambda x: encode(x)[0],
+        DataIterator(train, batch_size=4),
+        class_labels
+    )
+
+    decode = model.module_.decode
+    generate(decode)
 
 
 if __name__ == '__main__':
