@@ -1,11 +1,21 @@
 import skorch
 import torch
 import torchvision
+import random
 import numpy as np
 import matplotlib.pyplot as plt
 
 from operator import mul
 from functools import reduce
+
+
+SEED = 137
+
+random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
 
 
 class Encoder(torch.nn.Module):
@@ -55,7 +65,7 @@ class VAE(torch.nn.Module):
     def forward(self, x):
         z, (mean, stddev) = self.encode(x)
         logits, mean_image, sampled_image = self.decode(z)
-        return mean_image, sampled_image, logits, z, mean, stddev
+        return x, mean_image, sampled_image, logits, z, mean, stddev
 
     def encode(self, x):
         mean, stddev = self._encoder(x)
@@ -64,7 +74,7 @@ class VAE(torch.nn.Module):
 
     def decode(self, z):
         logits = self._decoder(z)
-        mean_image = torch.nn.functional.sigmoid(logits)
+        mean_image = torch.sigmoid(logits)
         sampled_image = torch.bernoulli(mean_image)
         return logits, mean_image, sampled_image
 
@@ -72,6 +82,32 @@ class VAE(torch.nn.Module):
 def kl_gaussian(mean, var):
     kl_divergence_vector = 0.5 * (-torch.log(var) - 1.0 + var + mean**2)
     return torch.sum(kl_divergence_vector, axis=-1)
+
+
+def binary_cross_entropy(x, logits):
+    x = x.view(x.shape[0], -1)
+    logits = logits.view(x.shape[0], -1)
+    return -torch.sum(x * logits - torch.log(1 + torch.exp(logits)))
+
+
+class ELBO(torch.nn.Module):
+    """
+        Calculate the ELBO.
+        mean: mean of the q(z|x).
+        stddev: stddev of the q(z|x).
+    """
+
+    def __init__(self, reduction="sum"):
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(self, y_pred, y_true):
+        x, _, _, logits, _, mean, stddev = y_pred
+        log_likelihood = -torch.nn.functional.binary_cross_entropy_with_logits(
+            x, logits, reduction=self.reduction)
+        kl = kl_gaussian(mean, stddev**2)
+        elbo = torch.mean(log_likelihood - kl)
+        return -elbo
 
 
 # For some reason num_workers doesn't work with skorch :/
@@ -99,8 +135,8 @@ def build_model():
         module__hid_size=2,
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
-        # criterion=MSE,
-        max_epochs=20,
+        criterion=ELBO,
+        max_epochs=5,
         batch_size=64,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
@@ -120,7 +156,7 @@ def visualize(encode, dataset, class_labels):
     zs, ys = [], []
     for (x, labels) in dataset:
         ys.append(labels)
-        zs.append(encode(x).detach().numpy())
+        zs.append(encode(x)[0].detach().numpy())
 
     latents = np.concatenate(zs, axis=0)
     labels = np.concatenate(ys, axis=0)
