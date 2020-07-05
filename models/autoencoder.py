@@ -51,9 +51,9 @@ class AutoEncoder(torch.nn.Module):
     def __init__(self, image_shape, hid_size=512, latent_size=2):
         super().__init__()
         self.encode = Encoder(
-            image_shape, latent_size=latent_size, hid_size=hid_size)
+            image_shape, hid_size=hid_size, latent_size=latent_size)
         self.decode = Decoder(
-            image_shape, latent_size=latent_size, hid_size=hid_size)
+            image_shape, hid_size=hid_size, latent_size=latent_size)
 
     def forward(self, x):
         z = self.encode(x)
@@ -89,24 +89,25 @@ class ShapeSetter(skorch.callbacks.Callback):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def build_model():
+def build_model(device=torch.device("cpu")):
     model = skorch.NeuralNet(
         module=AutoEncoder,
         module__image_shape=(2, 10, 10),
-        module__hid_size=2,
+        module__hid_size=512,
+        module__latent_size=2,
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=MSE,
-        max_epochs=20,
-        batch_size=128,
+        max_epochs=2,
+        batch_size=256,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
         # iterator_tarin__num_workers=2,
         iterator_valid=DataIterator,
         iterator_valid__shuffle=False,
         # iterator_valid__num_workers=2,
-        train_split=None,
-        device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'),
+        train_split=torch.utils.data.random_split,
+        device=device,
         callbacks=[
             ShapeSetter(),
         ],
@@ -114,11 +115,11 @@ def build_model():
     return model
 
 
-def visualize(encode, dataset, class_labels):
+def visualize(encode, dataset, class_labels, device):
     zs, ys = [], []
     for (x, labels) in dataset:
         ys.append(labels)
-        zs.append(encode(x).detach().numpy())
+        zs.append(encode(x.to(device)).cpu().detach().numpy())
 
     latents = np.concatenate(zs, axis=0)
     labels = np.concatenate(ys, axis=0)
@@ -150,13 +151,16 @@ def main():
         # 'seven', 'eight', 'nine'
     ]
 
-    model = build_model().fit(train)
-    encode = model.module_.encode
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    ae = build_model(device).fit(train)
+    print(ae)
+    encode = ae.module_.encode
 
     visualize(
         encode,
         torch.utils.data.DataLoader(train, batch_size=4, num_workers=4),
-        class_labels
+        class_labels,
+        device,
     )
     plt.plot()
     plt.show()
