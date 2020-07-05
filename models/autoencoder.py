@@ -98,15 +98,14 @@ def build_model(device=torch.device("cpu")):
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=MSE,
-        max_epochs=2,
-        batch_size=256,
+        max_epochs=20,
+        batch_size=512,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
         # iterator_tarin__num_workers=2,
         iterator_valid=DataIterator,
         iterator_valid__shuffle=False,
         # iterator_valid__num_workers=2,
-        train_split=torch.utils.data.random_split,
         device=device,
         callbacks=[
             ShapeSetter(),
@@ -137,7 +136,7 @@ def visualize(encode, dataset, class_labels, device):
 def main():
     transform = torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5), (0.5))
+        torchvision.transforms.Normalize((0.), (1.))
     ])
 
     train = torchvision.datasets.FashionMNIST(

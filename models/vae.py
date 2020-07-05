@@ -26,6 +26,8 @@ class Encoder(torch.nn.Module):
         self._hid = torch.nn.Sequential(
             torch.nn.Linear(flat_features, hid_size),
             torch.nn.ReLU(),
+            torch.nn.Linear(hid_size, hid_size),
+            torch.nn.ReLU(),
         )
         self._mean = torch.nn.Linear(hid_size, latent_size)
         self._log_std = torch.nn.Linear(hid_size, latent_size)
@@ -41,11 +43,13 @@ class Encoder(torch.nn.Module):
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, output_shape, hid_size):
+    def __init__(self, output_shape, hid_size=512, latent_size=10):
         super().__init__()
         self._output_shape = output_shape
         flat_features = reduce(mul, output_shape, 1)
         self._layer = torch.nn.Sequential(
+            torch.nn.Linear(latent_size, hid_size),
+            torch.nn.ReLU(),
             torch.nn.Linear(hid_size, hid_size),
             torch.nn.ReLU(),
             torch.nn.Linear(hid_size, flat_features),
@@ -58,10 +62,12 @@ class Decoder(torch.nn.Module):
 
 
 class VAE(torch.nn.Module):
-    def __init__(self, image_shape, hid_size):
+    def __init__(self, image_shape, hid_size=512, latent_size=2):
         super().__init__()
-        self._encoder = Encoder(image_shape, latent_size=hid_size)
-        self._decoder = Decoder(image_shape, hid_size=hid_size)
+        self._encoder = Encoder(
+            image_shape, hid_size=hid_size, latent_size=latent_size)
+        self._decoder = Decoder(
+            image_shape, hid_size=hid_size, latent_size=latent_size)
 
     def forward(self, x):
         z, (mean, stddev) = self.encode(x)
@@ -133,11 +139,12 @@ class ShapeSetter(skorch.callbacks.Callback):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def build_model():
+def build_model(device=torch.device("cpu")):
     model = skorch.NeuralNet(
         module=VAE,
         module__image_shape=(2, 10, 10),
-        module__hid_size=2,
+        module__hid_size=512,
+        module__latent_size=2,
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=ELBO,
@@ -149,7 +156,7 @@ def build_model():
         iterator_valid=DataIterator,
         iterator_valid__shuffle=False,
         # iterator_valid__num_workers=2,
-        train_split=None,
+        device=device,
         callbacks=[
             ShapeSetter(),
         ]
@@ -157,11 +164,11 @@ def build_model():
     return model
 
 
-def visualize(encode, dataset, class_labels):
+def visualize(encode, dataset, class_labels, device=torch.device("cpu")):
     zs, ys = [], []
     for (x, labels) in dataset:
         ys.append(labels)
-        zs.append(encode(x).detach().numpy())
+        zs.append(encode(x.to(device)).cpu().detach().numpy())
 
     latents = np.concatenate(zs, axis=0)
     labels = np.concatenate(ys, axis=0)
@@ -176,7 +183,7 @@ def visualize(encode, dataset, class_labels):
     plt.axis('equal')
 
 
-def generate(decode, how='prior'):
+def generate(decode, how='prior', device=torch.device("cpu")):
     # display a 2D manifold of the decoded images
     n = 15  # figure with 15x15 decoded images
     digit_size = 28
@@ -197,8 +204,9 @@ def generate(decode, how='prior'):
         for j, xi in enumerate(grid_y):
             z_sample = np.array([[xi, yi]])
             # mean_image, sampled_image
-            _, mean_image, _ = decode(torch.tensor(z_sample).float())
-            xd_mean_image = mean_image.detach().numpy()
+            z = torch.tensor(z_sample).float().to(device)
+            _, mean_image, _ = decode(z)
+            xd_mean_image = mean_image.cpu().detach().numpy()
 
             digit = xd_mean_image[0].reshape(digit_size, digit_size)
             figure[i * digit_size: (i + 1) * digit_size,
@@ -231,17 +239,19 @@ def main():
         # 'seven', 'eight', 'nine'
     ]
 
-    model = build_model().fit(train)
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    model = build_model(device).fit(train)
     encode = model.module_.encode
 
     visualize(
         lambda x: encode(x)[0],
         torch.utils.data.DataLoader(train, batch_size=4, num_workers=4),
-        class_labels
+        class_labels,
+        device
     )
 
     decode = model.module_.decode
-    generate(decode)
+    generate(decode, device=device)
 
 
 if __name__ == '__main__':
