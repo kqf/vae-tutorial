@@ -66,7 +66,7 @@ class VAE(torch.nn.Module):
     def forward(self, x):
         z, (mean, stddev) = self.encode(x)
         logits, mean_image, sampled_image = self.decode(z)
-        return x, mean_image, sampled_image, logits, z, mean, stddev
+        return mean_image, sampled_image, logits, z, mean, stddev
 
     def encode(self, x):
         mean, stddev = self._encoder(x)
@@ -103,9 +103,9 @@ class ELBO(torch.nn.Module):
         self.reduction = reduction
 
     def forward(self, y_pred, y_true):
-        x, _, _, logits, _, mean, stddev = y_pred
+        _, _, logits, _, mean, stddev = y_pred
         log_likelihood = -torch.nn.functional.binary_cross_entropy_with_logits(
-            x, logits, reduction=self.reduction)
+            y_true, logits, reduction=self.reduction)
         kl = kl_gaussian(mean, stddev**2)
         elbo = torch.mean(log_likelihood - kl)
         return -elbo
@@ -115,6 +115,10 @@ class ELBO(torch.nn.Module):
 class DataIterator(torch.utils.data.DataLoader):
     def __init__(self, dataset, num_workers=4, *args, **kwargs):
         super().__init__(dataset, num_workers=num_workers, *args, **kwargs)
+
+    def __iter__(self):
+        for (x, y) in super().__iter__():
+            yield x, x
 
 
 class ShapeSetter(skorch.callbacks.Callback):
@@ -200,7 +204,7 @@ def generate(decode, how='prior'):
             figure[i * digit_size: (i + 1) * digit_size,
                    j * digit_size: (j + 1) * digit_size] = digit
 
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(8, 8))
     ax_min, ax_max = linspace[0], linspace[-1]
     plt.imshow(figure, cmap='Greys_r', extent=[ax_min, ax_max, ax_min, ax_max])
     grid_x_neat = ['{:0.2f}'.format(x) for x in grid_x]
@@ -232,7 +236,7 @@ def main():
 
     visualize(
         lambda x: encode(x)[0],
-        DataIterator(train, batch_size=4),
+        torch.utils.data.DataLoader(train, batch_size=4, num_workers=4),
         class_labels
     )
 

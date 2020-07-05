@@ -14,9 +14,8 @@ def test_vae(image_shape, batch_size=128, hid_dim=2):
     x = torch.zeros(batch_size, *image_shape)
 
     encoder = VAE(image_shape, hid_dim)
-    orig, mean_image, sampled_image, logits, z, mean, stddev = encoder(x)
+    mean_image, sampled_image, logits, z, mean, stddev = encoder(x)
 
-    assert torch.equal(orig, x)
     assert mean_image.shape == x.shape
     assert sampled_image.shape == x.shape
     assert logits.shape == x.shape
@@ -48,7 +47,6 @@ def test_kl():
 def test_elbo(image_shape):
     criterion = ELBO(reduction="sum")
     y_pred = (
-        torch.ones(*image_shape),
         None,
         None,
         torch.ones(*image_shape),
@@ -56,5 +54,6 @@ def test_elbo(image_shape):
         torch.tensor([[0.0, 0.0]]),
         torch.tensor([[1.0, 1.0]])
     )
-    output = criterion(y_pred, None)
+    y_true = torch.ones(*image_shape)
+    output = criterion(y_pred, y_true)
     assert torch.allclose(output, torch.tensor(245.59708))
