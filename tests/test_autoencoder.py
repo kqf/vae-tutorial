@@ -25,8 +25,7 @@ def test_decoder(image_shape, batch_size=128, hid_size=2):
 def test_autoencoder(image_shape, batch_size=128, hid_size=2):
     encoder = AutoEncoder(image_shape, hid_size=hid_size)
     batch = torch.zeros(batch_size, *image_shape)
-    x, x_rec, z = encoder(batch)
+    x_rec, z = encoder(batch)
 
-    assert torch.equal(x, batch)
-    assert batch.shape == x.shape
+    assert x_rec.shape == batch.shape
     assert z.shape == (batch_size, hid_size)

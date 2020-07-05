@@ -52,19 +52,23 @@ class AutoEncoder(torch.nn.Module):
     def forward(self, x):
         z = self.encode(x)
         x_rec = self.decode(z)
-        return x, x_rec, z
+        return x_rec, z
 
 
 class MSE(torch.nn.Module):
     def forward(self, y_pred, y_true):
-        x, x_rec, z = y_pred
-        return torch.mean((x - x_rec) ** 2)
+        x_rec, z = y_pred
+        return torch.mean((x_rec - y_true) ** 2)
 
 
 # For some reason num_workers doesn't work with skorch :/
 class DataIterator(torch.utils.data.DataLoader):
     def __init__(self, dataset, num_workers=4, *args, **kwargs):
         super().__init__(dataset, num_workers=num_workers, *args, **kwargs)
+
+    def __iter__(self):
+        for (x, y) in super().__iter__():
+            yield x, x
 
 
 class ShapeSetter(skorch.callbacks.Callback):
