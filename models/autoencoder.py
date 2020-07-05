@@ -15,6 +15,8 @@ class Encoder(torch.nn.Module):
         self._layer = torch.nn.Sequential(
             torch.nn.Linear(flat_features, hid_size),
             torch.nn.ReLU(),
+            torch.nn.Linear(hid_size, hid_size),
+            torch.nn.ReLU(),
             torch.nn.Linear(hid_size, latent_size),
         )
 
@@ -25,11 +27,13 @@ class Encoder(torch.nn.Module):
 
 
 class Decoder(torch.nn.Module):
-    def __init__(self, output_shape, hid_size):
+    def __init__(self, output_shape, hid_size=512, latent_size=10):
         super().__init__()
         self._output_shape = output_shape
         flat_features = reduce(mul, output_shape, 1)
         self._layer = torch.nn.Sequential(
+            torch.nn.Linear(latent_size, hid_size),
+            torch.nn.ReLU(),
             torch.nn.Linear(hid_size, hid_size),
             torch.nn.ReLU(),
             torch.nn.Linear(hid_size, flat_features),
@@ -44,10 +48,12 @@ class Decoder(torch.nn.Module):
 class AutoEncoder(torch.nn.Module):
     """Main AE model class, uses Encoder & Decoder under the hood."""
 
-    def __init__(self, image_shape, hid_size):
+    def __init__(self, image_shape, hid_size=512, latent_size=2):
         super().__init__()
-        self.encode = Encoder(image_shape, latent_size=hid_size)
-        self.decode = Decoder(image_shape, hid_size=hid_size)
+        self.encode = Encoder(
+            image_shape, latent_size=latent_size, hid_size=hid_size)
+        self.decode = Decoder(
+            image_shape, latent_size=latent_size, hid_size=hid_size)
 
     def forward(self, x):
         z = self.encode(x)
@@ -92,7 +98,7 @@ def build_model():
         optimizer__lr=0.0001,
         criterion=MSE,
         max_epochs=20,
-        batch_size=64,
+        batch_size=128,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
         # iterator_tarin__num_workers=2,
@@ -100,9 +106,10 @@ def build_model():
         iterator_valid__shuffle=False,
         # iterator_valid__num_workers=2,
         train_split=None,
+        device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'),
         callbacks=[
             ShapeSetter(),
-        ]
+        ],
     )
     return model
 
@@ -146,7 +153,11 @@ def main():
     model = build_model().fit(train)
     encode = model.module_.encode
 
-    visualize(encode, DataIterator(train, batch_size=4), class_labels)
+    visualize(
+        encode,
+        torch.utils.data.DataLoader(train, batch_size=4, num_workers=4),
+        class_labels
+    )
     plt.plot()
     plt.show()
 
