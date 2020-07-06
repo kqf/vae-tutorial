@@ -62,9 +62,15 @@ class AutoEncoder(torch.nn.Module):
 
 
 class MSE(torch.nn.Module):
+    def __init__(self, regularized=False):
+        super().__init__()
+        self.regularized = regularized
+
     def forward(self, y_pred, y_true):
         x_rec, z = y_pred
-        return torch.mean((x_rec - y_true) ** 2)
+
+        reg = 0.5 * (1 / z) ** 2 if self.regularized else 0
+        return torch.mean((x_rec - y_true) ** 2 + reg)
 
 
 # For some reason num_workers doesn't work with skorch :/
@@ -89,7 +95,7 @@ class ShapeSetter(skorch.callbacks.Callback):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def build_model(device=torch.device("cpu")):
+def build_model(device=torch.device("cpu"), regularized=False):
     model = skorch.NeuralNet(
         module=AutoEncoder,
         module__image_shape=(2, 10, 10),
@@ -98,6 +104,7 @@ def build_model(device=torch.device("cpu")):
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=MSE,
+        criterion__regularized=regularized,
         max_epochs=20,
         batch_size=512,
         iterator_train=DataIterator,
