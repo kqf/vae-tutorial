@@ -38,7 +38,7 @@ class Encoder(torch.nn.Module):
         h0 = self._hid(x)
 
         mean = self._mean(h0)
-        sigma = torch.exp(self._log_std(h0))
+        sigma = torch.exp(0.5 * self._log_std(h0))
         return mean, sigma
 
 
@@ -50,15 +50,13 @@ class Decoder(torch.nn.Module):
         self._layer = torch.nn.Sequential(
             torch.nn.Linear(latent_size, hid_size),
             torch.nn.ReLU(),
-            torch.nn.Linear(hid_size, hid_size),
-            torch.nn.ReLU(),
             torch.nn.Linear(hid_size, flat_features),
         )
 
     def __call__(self, z):
         x = self._layer(z)
         x_reconstructed = x.view(-1, *self._output_shape)
-        return x_reconstructed
+        return torch.sigmoid(x_reconstructed)
 
 
 class VAE(torch.nn.Module):
@@ -76,7 +74,9 @@ class VAE(torch.nn.Module):
 
     def encode(self, x):
         mean, stddev = self._encoder(x)
-        z = torch.normal(mean, stddev)
+        normal_sample = torch.randn_like(stddev)
+
+        z = mean + normal_sample * stddev
         return z, (mean, stddev)
 
     def decode(self, z):
@@ -91,7 +91,7 @@ def kl_gaussian(mean, var):
     return torch.sum(kl_divergence_vector, axis=-1)
 
 
-def binary_cross_entropy(x, logits):
+def binary_cross_entropy(logits, x):
     x = x.view(x.shape[0], -1)
     logits = logits.view(x.shape[0], -1)
     return -torch.sum(x * logits - torch.log(1 + torch.exp(logits)))
@@ -110,8 +110,8 @@ class ELBO(torch.nn.Module):
 
     def forward(self, y_pred, y_true):
         _, _, logits, _, mean, stddev = y_pred
-        log_likelihood = -torch.nn.functional.binary_cross_entropy_with_logits(
-            y_true, logits, reduction=self.reduction)
+        log_likelihood = -torch.nn.functional.binary_cross_entropy(
+            logits, y_true, reduction=self.reduction)
         kl = kl_gaussian(mean, stddev**2)
         elbo = torch.mean(log_likelihood - kl)
         return -elbo
@@ -139,6 +139,14 @@ class ShapeSetter(skorch.callbacks.Callback):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
+def epoch_vis(model, X, y):
+    # _, _, logits, _, mean, stddev = model.predict(X)
+    # import ipdb; ipdb.set_trace(); import IPython; IPython.embed() # noqa
+    # plt.imshow(X[0][0].cpu().detach().numpy())
+    # plt.show()
+    return 0
+
+
 def build_model(device=torch.device("cpu")):
     model = skorch.NeuralNet(
         module=VAE,
@@ -148,8 +156,8 @@ def build_model(device=torch.device("cpu")):
         optimizer=torch.optim.Adam,
         optimizer__lr=0.0001,
         criterion=ELBO,
-        max_epochs=2,
-        batch_size=64,
+        max_epochs=10,
+        batch_size=128,
         iterator_train=DataIterator,
         iterator_train__shuffle=True,
         # iterator_tarin__num_workers=2,
@@ -159,6 +167,7 @@ def build_model(device=torch.device("cpu")):
         device=device,
         callbacks=[
             ShapeSetter(),
+            skorch.callbacks.EpochScoring(epoch_vis, on_train=True),
         ]
     )
     return model
@@ -225,7 +234,6 @@ def generate(decode, how='prior', device=torch.device("cpu")):
 def main():
     transform = torchvision.transforms.Compose([
         torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5), (0.5))
     ])
 
     train = torchvision.datasets.FashionMNIST(

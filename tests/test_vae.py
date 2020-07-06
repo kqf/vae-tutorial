@@ -49,11 +49,12 @@ def test_elbo(image_shape):
     y_pred = (
         None,
         None,
-        torch.ones(*image_shape),
+        torch.sigmoid(torch.ones(*image_shape)),
         None,
         torch.tensor([[0.0, 0.0]]),
         torch.tensor([[1.0, 1.0]])
     )
     y_true = torch.ones(*image_shape)
     output = criterion(y_pred, y_true)
+    print(output)
     assert torch.allclose(output, torch.tensor(245.59708))
